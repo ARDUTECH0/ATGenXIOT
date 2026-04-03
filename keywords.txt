@@ -1,0 +1,20 @@
+# Syntax Coloring for Arduino IDE
+
+# Datatypes (KEYWORD1)
+ATGenX_Hub	KEYWORD1
+ATGenX_Device	KEYWORD1
+
+# Methods and Functions (KEYWORD2)
+begin	KEYWORD2
+loop	KEYWORD2
+attachDevice	KEYWORD2
+turnOn	KEYWORD2
+turnOff	KEYWORD2
+toggle	KEYWORD2
+isOn	KEYWORD2
+onStateChange	KEYWORD2
+publishState	KEYWORD2
+getDeviceId	KEYWORD2
+getFullPath	KEYWORD2
+
+# Constants (LITERAL1)

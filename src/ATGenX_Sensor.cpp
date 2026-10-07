@@ -1,7 +1,7 @@
 /**
  * @file    ATGenX_Sensor.cpp
  * @brief   ATGenX_Sensor implementation
- * @version 1.1.0
+ * @version 2.2.0
  */
 
 #include "ATGenX_Sensor.h"
@@ -57,7 +57,9 @@ void ATGenX_Sensor::loop() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void ATGenX_Sensor::publishNow() {
+    _force = true;
     doRead();
+    _force = false;
 }
 
 void ATGenX_Sensor::setInterval(uint32_t intervalMs) {
@@ -82,27 +84,20 @@ void ATGenX_Sensor::doRead() {
     char buf[256];
     buf[0] = '\0';
 
-    // readAndBuildPayload() returns false either on a hardware error
-    // OR when the subclass already detected no meaningful change.
+    // false = hardware error, or the subclass saw no meaningful change
     if (!readAndBuildPayload(buf, sizeof(buf))) {
+#if ATGENX_DEBUG
         Serial.print(F("[ATGenX] Sensor '"));
         Serial.print(_id);
-        Serial.println(F("' – no change or read failed, skipping publish"));
+        Serial.println(F("' – no change or read failed"));
+#endif
         return;
     }
 
-    // ── Delta check ────────────────────────────────────────────────────────
-    // Skip publish when the payload is identical to the last one sent.
-    // Subclasses that embed a timestamp should handle their own comparison
-    // on the meaningful fields and return false above instead.
-    if (_lastPayload == buf) {
-        Serial.print(F("[ATGenX] Sensor '"));
-        Serial.print(_id);
-        Serial.println(F("' – payload unchanged, skipping publish"));
-        return;
-    }
+    // Identical payload → nothing new to say (unless forced)
+    if (!_force && _lastPayload == buf) return;
 
-    _lastPayload = buf;   // cache before publish
+    _lastPayload = buf;
     publishPayload(buf);
 }
 
@@ -110,11 +105,13 @@ void ATGenX_Sensor::publishPayload(const char* payload) {
     if (!_hub) return;
 
     const bool ok = _hub->publish(_topicReading.c_str(), payload, /*retained=*/false);
+    if (!ok) _lastPayload = "";   // offline: send it again once we're back
 
+#if ATGENX_DEBUG
     Serial.print(F("[ATGenX] Sensor '"));
     Serial.print(_id);
     Serial.print(F("' → "));
-    Serial.print(ok ? F("OK") : F("FAIL"));
-    Serial.print(F("  "));
+    Serial.print(ok ? F("OK  ") : F("FAIL  "));
     Serial.println(payload);
+#endif
 }

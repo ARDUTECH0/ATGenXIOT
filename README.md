@@ -1,769 +1,154 @@
-# ATGenX Hub Library
+# ATGenX Hub (ATGenXIOT)
 
-# ATGenX
+Connect an **ESP32 or ESP8266** to the [ATGENX](https://atgenx.com) IoT cloud.
+Switch outputs from the dashboard, stream sensor readings into history and
+charts, and let cloud automations react — with one MQTT connection.
 
-**Professional MQTT Relay & Sensor Control for ESP32 / ESP8266**
+- **Outputs:** relays, LEDs, buzzers, motors (`ATGenX_Device`), servos (`ATGenX_Servo`)
+- **Sensors:** DHT11/22, PIR, LDR, any analog sensor, any ON/OFF input, HC-SR04, sound
+- **Robust:** non-blocking reconnect with back-off, so outputs and sensors keep running while Wi-Fi or the broker is down
+- **Presence:** online/offline status topic (MQTT last will) and periodic board discovery
+- **Friendly errors:** "wrong MQTT username/password", "device limit reached", … on Serial and in `onError()`
 
-ATGenX is an Arduino library that connects your board to an MQTT broker and lets you control relay outputs and read sensors with minimal sketch code. One `hub.loop()` call drives everything — WiFi reconnection, MQTT keepalive, sensor polling, and state publishing.
+## Install
 
----
+**Library Manager:** search for **ATGenX_Hub** and install it, along with its
+dependencies (PubSubClient, ArduinoJson, DHT sensor library).
+For servos on ESP32, also install **ESP32Servo**.
 
-## Features
+**Manual:** download this repository as a ZIP, then choose *Sketch → Include Library → Add .ZIP Library*.
 
-* Control up to **16 relay outputs** over MQTT
-* Read up to **8 sensors** (DHT, PIR, LDR, Ultrasonic — or your own)
-* **Automatic MQTT reconnection** — session drops are handled silently
-* **Retained state publishing** — broker remembers last known relay state
-* **Auto-discovery** — periodic JSON announcement so dashboards detect the board
-* Plain-text and JSON command payloads accepted
-* Supports **ESP32** (all variants) and **ESP8266**
+## Your credentials
 
----
+On atgenx.com go to **Billing → IoT account**. There you'll find:
 
-## Installation
+| Field          | Example            | Used as                      |
+|----------------|--------------------|------------------------------|
+| MQTT username  | `atg_usr_…`        | 3rd argument of `hub.begin`  |
+| Device password| `atg_sk_…`         | 4th argument of `hub.begin`  |
+| Client ID      | `atg_dev_…`        | `ATGenX_Hub hub("atg_dev_…")`|
 
-### Arduino Library Manager *(recommended)*
+The ATGENX Builder can fill these in for you: select the board, then **Use my ATGENX IoT account**.
 
-1. Open Arduino IDE → **Sketch → Include Library → Manage Libraries**
-2. Search for `ATGenX`
-3. Click **Install**
-
-### Manual
-
-1. Download the ZIP from the [Releases](https://github.com/yourname/ATGenX/releases) page
-2. Arduino IDE → **Sketch → Include Library → Add .ZIP Library**
-
-### Dependencies
-
-Install these from Library Manager before using ATGenX:
-
-
-| Library                                         | Minimum Version |
-| ----------------------------------------------- | --------------- |
-| PubSubClient                                    | 2.8             |
-| ArduinoJson                                     | 7.x             |
-| DHT sensor library*(only if using ATGenX\_DHT)* | 1.4             |
-
----
-
-## Quick Start
+## Quick start
 
 ```cpp
-#include <ATGenX.h>
+#include <ATGenXIOT.h>
 
-ATGenX_Hub    hub("user123");
-ATGenX_Device relay1(5,  "relay1");   // GPIO 5
-ATGenX_Device relay2(18, "relay2");   // GPIO 18
+ATGenX_Hub    hub("atg_dev_xxxxxx");          // Client ID
+ATGenX_Device lamp(2, "lamp", false);          // LED on GPIO2 (relay modules: true)
+ATGenX_DHT    room(4, "room", DHT22);
 
 void setup() {
     Serial.begin(115200);
-    hub.begin("MY_SSID", "MY_PASS", "mqttUser", "mqttPass");
-    hub.attach(relay1);
-    hub.attach(relay2);
+    hub.begin("MyWiFi", "wifi-password", "atg_usr_xxxxxxxx", "atg_sk_xxxxxxxx");
+    hub.attach(lamp);
+    hub.attachSensor(room);
+    room.begin();
 }
 
 void loop() {
-    hub.loop();
+    hub.loop();        // keep loop() free of long delay() calls
 }
 ```
 
-Send `on` or `off` to `atgenx/user123/relay1/cmd` — done.
+More examples are in `examples/`: Single_Relay, Multi_Relay, Smart_Room and Servo_Door.
 
----
+## Classes
 
-## Topic Convention
+| Class | Constructor | Publishes |
+|---|---|---|
+| `ATGenX_Device` | `(pin, "id", activeLow = true)` | state `{"state":1}` |
+| `ATGenX_Servo`  | `(pin, "id", startAngle = 0)`, needs `#include <ATGenX_Servo.h>` | state `{"angle":90,"state":1}` |
+| `ATGenX_DHT` | `(pin, "id", DHT22, intervalMs = 5000)` | `{"tempC":24.5,"humidity":58.0}` |
+| `ATGenX_PIR` | `(pin, "id")` | `{"motion":1}` on change |
+| `ATGenX_Digital` | `(pin, "id", activeLow = true, debounceMs = 30)` | `{"state":1}` on change |
+| `ATGenX_Analog` | `(pin, "id", intervalMs = 1000, minChange = 20, heartbeatMs = 30000)` | `{"value":2048,"percent":50}` |
+| `ATGenX_LDR` | `(pin, "id", adcMax = 4095)` | `{"value":…,"percent":…,"analog":…}` |
+| `ATGenX_Ultrasonic` | `(trigPin, echoPin, "id")` | `{"value":42.0,"unit":"cm"}` |
+| `ATGenX_SoundSensor` | `(digitalPin, analogPin, "id", mode, intervalMs, threshold)` | `{"state":…,"value":…}` |
+| `ATGenX_Discovery` | `(hub, intervalMs = 30000)` | board announcement |
 
+`ATGenX.h` is kept as an alias of `ATGenXIOT.h` for older sketches.
 
-| Direction           | Topic                                | Example                       |
-| ------------------- | ------------------------------------ | ----------------------------- |
-| Command (→ device) | `atgenx/<userId>/<deviceId>/cmd`     | `atgenx/user123/relay1/cmd`   |
-| State (← device)   | `atgenx/<userId>/<deviceId>/state`   | `atgenx/user123/relay1/state` |
-| Reading (← sensor) | `atgenx/<userId>/<sensorId>/reading` | `atgenx/user123/dht1/reading` |
-| Discovery           | `atgenx/<userId>/discovery`          | `atgenx/user123/discovery`    |
-
----
-
-## Accepted Command Payloads
-
-Both plain-text and JSON are supported:
-
-```
-Plain : 1 | 0 | on | off | true | false | toggle
-JSON  : {"state":1} | {"state":"ON"} | {"state":"off"} | {"state":"toggle"}
-```
-
----
-
-## Sensor Payloads
-
-Each sensor publishes JSON to its `/reading` topic:
-
-
-| Sensor             | Payload                                     |
-| ------------------ | ------------------------------------------- |
-| DHT11 / DHT22      | `{"tempC":24.5,"humidity":61.2,"ts":12345}` |
-| PIR                | `{"motion":1,"ts":12345}`                   |
-| LDR                | `{"analog":2047,"percent":50,"ts":12345}`   |
-| HC-SR04 Ultrasonic | `{"value":23.5,"unit":"cm","ts":12345}`     |
-
----
-
-## API Reference
-
-### ATGenX\_Hub
+### Hub
 
 ```cpp
-// Construction
-ATGenX_Hub hub("userId");
-
-// Lifecycle
-hub.begin(ssid, password, mqttUser, mqttPass);  // call once in setup()
-hub.loop();                                      // call every loop()
-
-// Device & sensor registry
-hub.attach(device);         // register a relay output
-hub.attachSensor(sensor);   // register a sensor
-
-// Query
-hub.isConnected();          // bool — MQTT session active?
-hub.getUserId();            // const char*
-hub.getBoardType();         // "ESP32" | "ESP8266" | ...
-hub.deviceCount();          // size_t
-hub.sensorCount();          // size_t
-hub.getDevice(index);       // const ATGenX_Device*
-hub.getSensor(index);       // const ATGenX_Sensor*
-
-// Callbacks
-hub.onError([](ATGenX_Error e, const char* detail) { ... });
-hub.onConnectionChange([](bool connected) { ... });
+hub.setServer("192.168.1.10", 1883);   // optional, before begin() (local broker)
+hub.begin(ssid, pass, mqttUser, mqttPass);
+hub.loop();
+hub.onError([](ATGenX_Error e, const char* why) { … });
+hub.onConnectionChange([](bool online) { … });
+hub.isConnected();  hub.getClientId();  hub.getBoardType();
 ```
 
-**Error codes (`ATGenX_Error`):**
-
-
-| Code             | Meaning                                       |
-| ---------------- | --------------------------------------------- |
-| `WIFI_TIMEOUT`   | WiFi association timed out — board restarted |
-| `MQTT_FAILED`    | All MQTT retry attempts exhausted             |
-| `MQTT_RECONNECT` | Session dropped — reconnection started       |
-| `DEVICE_LIMIT`   | `attach()`called after`MAX_DEVICES`(16)       |
-| `SENSOR_LIMIT`   | `attachSensor()`called after`MAX_SENSORS`(8)  |
-| `PUBLISH_FAILED` | MQTT`publish()`returned false                 |
-
----
-
-### ATGenX\_Device
+### Outputs
 
 ```cpp
-ATGenX_Device relay(pin, "deviceId", activeLow = true);
-
-// Control
-relay.turnOn();
-relay.turnOff();
-relay.toggle();
-
-// Query
-relay.isOn();        // bool
-relay.getPin();      // uint8_t
-relay.getId();       // const char*
-relay.getFullPath(); // const char*  — "userId/deviceId"
-
-// Callback
-relay.onStateChange([](bool on) { ... });
+lamp.turnOn();  lamp.turnOff();  lamp.toggle();  lamp.isOn();
+lamp.onStateChange([](bool on) { … });
+door.write(90);  door.angle();           // ATGenX_Servo
 ```
 
----
+## Topics
 
-### ATGenX\_Sensor (base class)
+`<clientId>` is your Client ID; `<id>` is the name you gave the device or sensor.
 
-```cpp
-// All built-in sensors inherit from this.
+| Topic | Direction | Payload |
+|---|---|---|
+| `atgenx/<clientId>/<id>/cmd` | cloud → board | `{"state":1}` · `{"state":"off"}` · `{"state":true}` · `{"cmd":"toggle"}` · `{"cmd":"getState"}` · `{"angle":90}` · plain `on` / `off` / `1` / `0` |
+| `atgenx/<clientId>/<id>/state` | board → cloud (retained) | `{"state":1,"label":"ON",…}` |
+| `atgenx/<clientId>/<id>/reading` | board → cloud | sensor JSON (see above) |
+| `atgenx/<clientId>/<boardId>/status` | board → cloud (retained, last will) | `{"online":true,"board":"ESP32","ip":"…","rssi":-60}` / `{"online":false}` |
+| `atgenx/<clientId>/discovery` | board → cloud (retained) | board, IP, RSSI, uptime, devices |
 
-sensor.publishNow();             // force immediate read + publish
-sensor.setInterval(ms);          // change polling period at runtime (0 = pause)
-sensor.getId();                  // const char*
-sensor.getFullPath();            // const char*
-sensor.getTopic();               // const char*  — full /reading topic
-```
+Commands can be up to 255 bytes. The cloud's automation payloads (`{"state":1,"stateLabel":"ON","source":"automation","ts":…}`) fit comfortably.
 
----
+## Errors (`onError`)
 
-### Built-in Sensors
+| Code | Meaning |
+|---|---|
+| `WIFI_TIMEOUT` | No Wi-Fi within 30 s at start-up. The board restarts. |
+| `MQTT_FAILED` | Wrong username/password, an expired plan, or the device limit is reached. |
+| `MQTT_RECONNECT` | The connection dropped. Reconnecting in the background (2 s → 60 s back-off). |
+| `DEVICE_LIMIT` / `SENSOR_LIMIT` | More than 16 outputs or 24 sensors were attached. |
+| `PUBLISH_FAILED` | The broker refused a message (it may be too large). |
 
-```cpp
-// DHT11 / DHT22
-ATGenX_DHT dht(pin, "dht1", DHT22, intervalMs = 5000);
-dht.begin();
+## Hardware notes
 
-// PIR motion sensor
-ATGenX_PIR pir(pin, "pir1", intervalMs = 500);
-pir.begin();
+- **Relays:** most modules switch on LOW, so `activeLow = true` (the default). LEDs, buzzers and MOSFET drivers need `false`.
+- **ESP32 analog + Wi-Fi:** use the ADC1 pins (32–39). ADC2 doesn't work while Wi-Fi is on.
+- **HC-SR04 on 3.3 V boards:** put a voltage divider on ECHO.
+- **DHT22:** read at most every 2 s (the default is 5 s).
+- Set `#define ATGENX_DEBUG 1` before the include to log every reading on Serial.
 
-// LDR light sensor
-ATGenX_LDR ldr(pin, "ldr1", adcMax = 4095, intervalMs = 2000);
-ldr.begin();
+## Over-the-air updates
 
-// HC-SR04 ultrasonic distance sensor
-ATGenX_Ultrasonic us(trigPin, echoPin, "us1", intervalMs = 1000);
-us.begin();
-```
+Boards running ATGenX_Hub 2.3+ update from the ATGENX site — no USB cable:
+open the code, choose **Update over the internet**, pick the board. The board
+downloads the new firmware, checks its MD5, flashes it and restarts, reporting
+`{"ota":"downloading"|"ok"|"failed"}` on its status topic. Cloud builds stamp a
+version (`ATGENX_FW_VERSION`) that the board reports as `"fw"` when it comes
+online. Turn it off with `hub.enableOta(false)`.
 
----
+ESP32 sketches need an OTA-capable partition scheme (the default one is).
 
-### ATGenX\_Discovery
+## Changelog
 
-```cpp
-ATGenX_Discovery discovery(hub, intervalMs = 30000);
+**2.3.0**
+- Over-the-air updates from the ATGENX site (HTTP/HTTPS, MD5-checked, outputs switched off while flashing).
+- The online status now includes the firmware version (`"fw"`).
 
-discovery.begin();   // call in setup() AFTER hub.begin() and all attach() calls
-discovery.loop();    // call every loop()
-discovery.announce(); // force immediate re-announcement
-discovery.setInterval(ms);
-discovery.getTopic(); // const char*
-```
-
----
-
-## Full Example
-
-```cpp
-#include <ATGenX.h>
-
-ATGenX_Hub          hub("user123");
-
-// Outputs
-ATGenX_Device       relay1(5,  "relay1");
-ATGenX_Device       relay2(18, "relay2");
-
-// Sensors
-ATGenX_DHT          dht(4,     "dht1");
-ATGenX_PIR          pir(13,    "pir1");
-ATGenX_LDR          ldr(34,    "ldr1");
-ATGenX_Ultrasonic   us(12, 14, "us1");
-
-// Discovery
-ATGenX_Discovery    discovery(hub, 30000);
-
-void setup() {
-    Serial.begin(115200);
-
-    hub.onError([](ATGenX_Error e, const char* d) {
-        Serial.printf("[Error %u] %s\n", (uint8_t)e, d);
-    });
-
-    hub.begin("MY_SSID", "MY_PASS", "mqttUser", "mqttPass");
-
-    hub.attach(relay1);
-    hub.attach(relay2);
-
-    hub.attachSensor(dht);
-    hub.attachSensor(pir);
-    hub.attachSensor(ldr);
-    hub.attachSensor(us);
-
-    dht.begin();
-    pir.begin();
-    ldr.begin();
-    us.begin();
-
-    discovery.begin();
-
-    relay1.onStateChange([](bool on) {
-        Serial.printf("relay1 is now %s\n", on ? "ON" : "OFF");
-    });
-}
-
-void loop() {
-    hub.loop();
-    discovery.loop();
-}
-```
-
----
-
-## Adding a Custom Sensor
-
-Subclass `ATGenX_Sensor` and override one method:
-
-```cpp
-#include <ATGenX.h>
-
-class ATGenX_MySensor : public ATGenX_Sensor {
-public:
-    ATGenX_MySensor(uint8_t pin, const char* id)
-        : ATGenX_Sensor(id, 2000), _pin(pin) {}
-
-    void begin() { pinMode(_pin, INPUT); }
-
-protected:
-    bool readAndBuildPayload(char* buf, size_t sz) override {
-        int v = analogRead(_pin);
-        snprintf(buf, sz, "{\"value\":%d,\"ts\":%lu}", v, millis());
-        return true;  // return false to skip publishing
-    }
-
-private:
-    uint8_t _pin;
-};
-```
-
-Then use it exactly like any built-in sensor:
-
-```cpp
-ATGenX_MySensor mySensor(35, "my1");
-hub.attachSensor(mySensor);
-mySensor.begin();
-```
-
-The sensor will publish to `atgenx/<userId>/my1/reading` every 2 seconds automatically.
-
----
-
-## Hardware Notes
-
-### Relay wiring (`activeLow`)
-
-Most relay modules trigger on **LOW** signal — this is the default (`activeLow = true`).
-Pass `false` as the third constructor argument for active-HIGH modules:
-
-```cpp
-ATGenX_Device relay(5, "relay1", false);   // active HIGH
-```
-
-### HC-SR04 on 3.3 V boards
-
-The ECHO pin outputs 5 V. Use a voltage divider (1 kΩ + 2 kΩ) to protect the GPIO.
-
-### DHT22 minimum interval
-
-The DHT22 needs at least **2000 ms** between readings. The default interval is 5000 ms.
-
-### ESP8266 ADC
-
-The ESP8266 has a 10-bit ADC (max = 1023). Pass this as `adcMax`:
-
-```cpp
-ATGenX_LDR ldr(A0, "ldr1", 1023);
-```
-
----
-
-## Library Constants
-
-
-| Constant           | Default | Description                             |
-| ------------------ | ------- | --------------------------------------- |
-| `MAX_DEVICES`      | 16      | Max relay outputs per hub               |
-| `MAX_SENSORS`      | 8       | Max sensors per hub                     |
-| `WIFI_TIMEOUT_SEC` | 30      | WiFi association timeout before restart |
-| `MQTT_MAX_RETRIES` | 5       | MQTT connection attempts before error   |
-| `MQTT_RETRY_MS`    | 3000    | Delay between MQTT retry attempts       |
-| `MQTT_KEEPALIVE_S` | 60      | MQTT keepalive interval                 |
-
----
+**2.2.0**
+- Non-blocking reconnect with back-off; outputs and sensors keep working offline.
+- Online/offline status topic (last will). Readings are re-sent right after reconnecting.
+- Commands up to 255 bytes. Cloud automations were silently dropped before (64-byte limit).
+- Accepts `{"state":true}`, `{"cmd":"getState"}` and `{"cmd":"toggle"}`.
+- 1 KB MQTT buffer: discovery announcements are no longer dropped.
+- New classes: `ATGenX_Digital`, `ATGenX_Analog`, `ATGenX_Servo`. Added `hub.setServer()`.
+- LDR now publishes `value` (the field dashboards read). Quieter Serial output.
+- ESP8266 is listed as supported. The examples were filled in (they were empty files).
 
 ## License
 
-MIT — see [LICENSE](https://claude.ai/chat/LICENSE) file.
-
-# ATGenX
-
-**Professional MQTT Relay & Sensor Control for ESP32 / ESP8266**
-
-ATGenX is an Arduino library that connects your board to an MQTT broker and lets you control relay outputs and read sensors with minimal sketch code. One `hub.loop()` call drives everything — WiFi reconnection, MQTT keepalive, sensor polling, and state publishing.
-
----
-
-## Features
-
-* Control up to **16 relay outputs** over MQTT
-* Read up to **8 sensors** (DHT, PIR, LDR, Ultrasonic — or your own)
-* **Automatic MQTT reconnection** — session drops are handled silently
-* **Retained state publishing** — broker remembers last known relay state
-* **Auto-discovery** — periodic JSON announcement so dashboards detect the board
-* Plain-text and JSON command payloads accepted
-* Supports **ESP32** (all variants) and **ESP8266**
-
----
-
-## Installation
-
-### Arduino Library Manager *(recommended)*
-
-1. Open Arduino IDE → **Sketch → Include Library → Manage Libraries**
-2. Search for `ATGenX`
-3. Click **Install**
-
-### Manual
-
-1. Download the ZIP from the [Releases](https://github.com/yourname/ATGenX/releases) page
-2. Arduino IDE → **Sketch → Include Library → Add .ZIP Library**
-
-### Dependencies
-
-Install these from Library Manager before using ATGenX:
-
-
-| Library                                         | Minimum Version |
-| ----------------------------------------------- | --------------- |
-| PubSubClient                                    | 2.8             |
-| ArduinoJson                                     | 7.x             |
-| DHT sensor library*(only if using ATGenX\_DHT)* | 1.4             |
-
----
-
-## Quick Start
-
-```cpp
-#include <ATGenX.h>
-
-ATGenX_Hub    hub("user123");
-ATGenX_Device relay1(5,  "relay1");   // GPIO 5
-ATGenX_Device relay2(18, "relay2");   // GPIO 18
-
-void setup() {
-    Serial.begin(115200);
-    hub.begin("MY_SSID", "MY_PASS", "mqttUser", "mqttPass");
-    hub.attach(relay1);
-    hub.attach(relay2);
-}
-
-void loop() {
-    hub.loop();
-}
-```
-
-Send `on` or `off` to `atgenx/user123/relay1/cmd` — done.
-
----
-
-## Topic Convention
-
-
-| Direction           | Topic                                | Example                       |
-| ------------------- | ------------------------------------ | ----------------------------- |
-| Command (→ device) | `atgenx/<userId>/<deviceId>/cmd`     | `atgenx/user123/relay1/cmd`   |
-| State (← device)   | `atgenx/<userId>/<deviceId>/state`   | `atgenx/user123/relay1/state` |
-| Reading (← sensor) | `atgenx/<userId>/<sensorId>/reading` | `atgenx/user123/dht1/reading` |
-| Discovery           | `atgenx/<userId>/discovery`          | `atgenx/user123/discovery`    |
-
----
-
-## Accepted Command Payloads
-
-Both plain-text and JSON are supported:
-
-```
-Plain : 1 | 0 | on | off | true | false | toggle
-JSON  : {"state":1} | {"state":"ON"} | {"state":"off"} | {"state":"toggle"}
-```
-
----
-
-## Sensor Payloads
-
-Each sensor publishes JSON to its `/reading` topic:
-
-
-| Sensor             | Payload                                     |
-| ------------------ | ------------------------------------------- |
-| DHT11 / DHT22      | `{"tempC":24.5,"humidity":61.2,"ts":12345}` |
-| PIR                | `{"motion":1,"ts":12345}`                   |
-| LDR                | `{"analog":2047,"percent":50,"ts":12345}`   |
-| HC-SR04 Ultrasonic | `{"value":23.5,"unit":"cm","ts":12345}`     |
-
----
-
-## API Reference
-
-### ATGenX\_Hub
-
-```cpp
-// Construction
-ATGenX_Hub hub("userId");
-
-// Lifecycle
-hub.begin(ssid, password, mqttUser, mqttPass);  // call once in setup()
-hub.loop();                                      // call every loop()
-
-// Device & sensor registry
-hub.attach(device);         // register a relay output
-hub.attachSensor(sensor);   // register a sensor
-
-// Query
-hub.isConnected();          // bool — MQTT session active?
-hub.getUserId();            // const char*
-hub.getBoardType();         // "ESP32" | "ESP8266" | ...
-hub.deviceCount();          // size_t
-hub.sensorCount();          // size_t
-hub.getDevice(index);       // const ATGenX_Device*
-hub.getSensor(index);       // const ATGenX_Sensor*
-
-// Callbacks
-hub.onError([](ATGenX_Error e, const char* detail) { ... });
-hub.onConnectionChange([](bool connected) { ... });
-```
-
-**Error codes (`ATGenX_Error`):**
-
-
-| Code             | Meaning                                       |
-| ---------------- | --------------------------------------------- |
-| `WIFI_TIMEOUT`   | WiFi association timed out — board restarted |
-| `MQTT_FAILED`    | All MQTT retry attempts exhausted             |
-| `MQTT_RECONNECT` | Session dropped — reconnection started       |
-| `DEVICE_LIMIT`   | `attach()`called after`MAX_DEVICES`(16)       |
-| `SENSOR_LIMIT`   | `attachSensor()`called after`MAX_SENSORS`(8)  |
-| `PUBLISH_FAILED` | MQTT`publish()`returned false                 |
-
----
-
-### ATGenX\_Device
-
-```cpp
-ATGenX_Device relay(pin, "deviceId", activeLow = true);
-
-// Control
-relay.turnOn();
-relay.turnOff();
-relay.toggle();
-
-// Query
-relay.isOn();        // bool
-relay.getPin();      // uint8_t
-relay.getId();       // const char*
-relay.getFullPath(); // const char*  — "userId/deviceId"
-
-// Callback
-relay.onStateChange([](bool on) { ... });
-```
-
----
-
-### ATGenX\_Sensor (base class)
-
-```cpp
-// All built-in sensors inherit from this.
-
-sensor.publishNow();             // force immediate read + publish
-sensor.setInterval(ms);          // change polling period at runtime (0 = pause)
-sensor.getId();                  // const char*
-sensor.getFullPath();            // const char*
-sensor.getTopic();               // const char*  — full /reading topic
-```
-
----
-
-### Built-in Sensors
-
-```cpp
-// DHT11 / DHT22
-ATGenX_DHT dht(pin, "dht1", DHT22, intervalMs = 5000);
-dht.begin();
-
-// PIR motion sensor
-ATGenX_PIR pir(pin, "pir1", intervalMs = 500);
-pir.begin();
-
-// LDR light sensor
-ATGenX_LDR ldr(pin, "ldr1", adcMax = 4095, intervalMs = 2000);
-ldr.begin();
-
-// HC-SR04 ultrasonic distance sensor
-ATGenX_Ultrasonic us(trigPin, echoPin, "us1", intervalMs = 1000);
-us.begin();
-```
-
----
-
-### ATGenX\_Discovery
-
-```cpp
-ATGenX_Discovery discovery(hub, intervalMs = 30000);
-
-discovery.begin();   // call in setup() AFTER hub.begin() and all attach() calls
-discovery.loop();    // call every loop()
-discovery.announce(); // force immediate re-announcement
-discovery.setInterval(ms);
-discovery.getTopic(); // const char*
-```
-
----
-
-## Full Example
-
-```cpp
-#include <ATGenX.h>
-
-ATGenX_Hub          hub("user123");
-
-// Outputs
-ATGenX_Device       relay1(5,  "relay1");
-ATGenX_Device       relay2(18, "relay2");
-
-// Sensors
-ATGenX_DHT          dht(4,     "dht1");
-ATGenX_PIR          pir(13,    "pir1");
-ATGenX_LDR          ldr(34,    "ldr1");
-ATGenX_Ultrasonic   us(12, 14, "us1");
-
-// Discovery
-ATGenX_Discovery    discovery(hub, 30000);
-
-void setup() {
-    Serial.begin(115200);
-
-    hub.onError([](ATGenX_Error e, const char* d) {
-        Serial.printf("[Error %u] %s\n", (uint8_t)e, d);
-    });
-
-    hub.begin("MY_SSID", "MY_PASS", "mqttUser", "mqttPass");
-
-    hub.attach(relay1);
-    hub.attach(relay2);
-
-    hub.attachSensor(dht);
-    hub.attachSensor(pir);
-    hub.attachSensor(ldr);
-    hub.attachSensor(us);
-
-    dht.begin();
-    pir.begin();
-    ldr.begin();
-    us.begin();
-
-    discovery.begin();
-
-    relay1.onStateChange([](bool on) {
-        Serial.printf("relay1 is now %s\n", on ? "ON" : "OFF");
-    });
-}
-
-void loop() {
-    hub.loop();
-    discovery.loop();
-}
-```
-
----
-
-## Adding a Custom Sensor
-
-Subclass `ATGenX_Sensor` and override one method:
-
-```cpp
-#include <ATGenX.h>
-
-class ATGenX_MySensor : public ATGenX_Sensor {
-public:
-    ATGenX_MySensor(uint8_t pin, const char* id)
-        : ATGenX_Sensor(id, 2000), _pin(pin) {}
-
-    void begin() { pinMode(_pin, INPUT); }
-
-protected:
-    bool readAndBuildPayload(char* buf, size_t sz) override {
-        int v = analogRead(_pin);
-        snprintf(buf, sz, "{\"value\":%d,\"ts\":%lu}", v, millis());
-        return true;  // return false to skip publishing
-    }
-
-private:
-    uint8_t _pin;
-};
-```
-
-Then use it exactly like any built-in sensor:
-
-```cpp
-ATGenX_MySensor mySensor(35, "my1");
-hub.attachSensor(mySensor);
-mySensor.begin();
-```
-
-The sensor will publish to `atgenx/<userId>/my1/reading` every 2 seconds automatically.
-
----
-
-## Hardware Notes
-
-### Relay wiring (`activeLow`)
-
-Most relay modules trigger on **LOW** signal — this is the default (`activeLow = true`).
-Pass `false` as the third constructor argument for active-HIGH modules:
-
-```cpp
-ATGenX_Device relay(5, "relay1", false);   // active HIGH
-```
-
-### HC-SR04 on 3.3 V boards
-
-The ECHO pin outputs 5 V. Use a voltage divider (1 kΩ + 2 kΩ) to protect the GPIO.
-
-### DHT22 minimum interval
-
-The DHT22 needs at least **2000 ms** between readings. The default interval is 5000 ms.
-
-### ESP8266 ADC
-
-The ESP8266 has a 10-bit ADC (max = 1023). Pass this as `adcMax`:
-
-```cpp
-ATGenX_LDR ldr(A0, "ldr1", 1023);
-```
-
----
-
-## Library Constants
-
-
-| Constant           | Default | Description                             |
-| ------------------ | ------- | --------------------------------------- |
-| `MAX_DEVICES`      | 16      | Max relay outputs per hub               |
-| `MAX_SENSORS`      | 8       | Max sensors per hub                     |
-| `WIFI_TIMEOUT_SEC` | 30      | WiFi association timeout before restart |
-| `MQTT_MAX_RETRIES` | 5       | MQTT connection attempts before error   |
-| `MQTT_RETRY_MS`    | 3000    | Delay between MQTT retry attempts       |
-| `MQTT_KEEPALIVE_S` | 60      | MQTT keepalive interval                 |
-
----
-
-## License
-
-MIT — see [LICENSE](https://claude.ai/chat/LICENSE) file.
-
-Professional MQTT Relay Control for ATGenX Platform
-
-## Features
-
-- ✅ Single MQTT connection for multiple devices
-- ✅ Easy configuration
-- ✅ Auto-reconnect
-- ✅ JSON and raw string commands
-- ✅ Callback support
-
-## Installation
-
-1. Download as ZIP
-2. Arduino IDE → Sketch → Include Library → Add .ZIP Library
-
-## Quick Start
-
-### Single Device
-
-```cpp
-#include <ATGenX_Hub.h>
-#include <ATGenX_Device.h>
-
-ATGenX_Hub hub("atg_dev_6515fa");
-ATGenX_Device relay(8, "1");
-
-void setup() {
-  hub.begin("SSID", "PASS", "MQTT_USER", "MQTT_PASS");
-  hub.attachDevice(&relay);
-}
-
-void loop() {
-  hub.loop();
-}
-```
+MIT

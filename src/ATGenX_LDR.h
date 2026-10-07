@@ -63,9 +63,10 @@ protected:
         const int  percent = static_cast<int>(
             (static_cast<float>(raw) / _adcMax) * 100.0f + 0.5f);
 
+        // "value" is what dashboards and automations read; "analog" kept for v2.1 users
         snprintf(buf, bufSize,
-                 "{\"analog\":%d,\"percent\":%d,\"ts\":%lu}",
-                 raw, percent, millis());
+                 "{\"value\":%d,\"percent\":%d,\"analog\":%d}",
+                 raw, percent, raw);
         return true;
     }
 

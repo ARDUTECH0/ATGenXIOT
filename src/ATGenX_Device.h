@@ -1,7 +1,7 @@
 /**
  * @file    ATGenX_Device.h
  * @brief   Relay device abstraction for the ATGenX IoT platform
- * @version 2.0.0
+ * @version 2.2.0
  *
  * Represents a single relay-controlled output (GPIO pin) that can be
  * commanded over MQTT, controlled locally, and queried for state.
@@ -98,12 +98,17 @@ public:
     void attachTo(ATGenX_Hub* hub);
 
     /** @internal Parses and executes an incoming MQTT command payload. */
-    void handleCommand(const char* payload, unsigned int len);
+    virtual void handleCommand(const char* payload, unsigned int len);
 
     /** @internal Publishes the current state to the state topic (retained). */
-    void publishState() const;
+    virtual void publishState() const;
 
-private:
+    virtual ~ATGenX_Device() = default;
+
+protected:
+
+    /** Configures the GPIO when attached (servo & co. override this). */
+    virtual void setupPin();
 
     // Hardware
     uint8_t _pin;

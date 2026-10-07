@@ -6,7 +6,7 @@
  * Include this one header in your sketch; it pulls everything in.
  *
  * @code
- *   #include <ATGenX.h>
+ *   #include <ATGenXIOT.h>
  *
  *   ATGenX_Hub          hub("user123");
  *
@@ -56,8 +56,16 @@
 #include "ATGenX_DHT.h"
 #include "ATGenX_PIR.h"
 #include "ATGenX_LDR.h"
+#include "ATGenX_Analog.h"
+#include "ATGenX_Digital.h"
 #include "ATGenX_Ultrasonic.h"
 #include "ATGenX_SoundSensor.h"
 
 // ── Discovery ─────────────────────────────────────────────────────────────
 #include "ATGenX_Discovery.h"
+
+// Cloud builds start with  #define ATGENX_FW_VERSION <n>  — remember it so the
+// board can report which firmware it runs.
+#ifdef ATGENX_FW_VERSION
+static ATGenX_FwVersion atgx_fw_version_(ATGENX_FW_VERSION);
+#endif

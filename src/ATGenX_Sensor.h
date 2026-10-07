@@ -1,7 +1,7 @@
 /**
  * @file    ATGenX_Sensor.h
  * @brief   Abstract sensor base class for the ATGenX IoT platform
- * @version 1.1.0
+ * @version 2.2.0
  *
  * All read-only sensor types inherit from ATGenX_Sensor and override
  * readAndBuildPayload() only.  The base class owns the timing loop,
@@ -136,6 +136,13 @@ protected:
      */
     virtual bool readAndBuildPayload(char* buf, size_t bufSize) = 0;
 
+    /**
+     * @brief True while a forced publish is running (publishNow(), or the
+     *        hub re-announcing after a reconnect). Subclasses that skip
+     *        unchanged values should publish anyway when this is true.
+     */
+    bool isForced() const { return _force; }
+
 private:
 
     String      _id;
@@ -151,6 +158,7 @@ private:
      *        doRead() skips publishing when the new payload matches this.
      */
     String      _lastPayload;
+    bool        _force = false;
 
     void doRead();
     void publishPayload(const char* payload);

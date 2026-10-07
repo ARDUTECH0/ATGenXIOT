@@ -89,7 +89,7 @@ protected:
 
         // ── Delta check — subclass owns this because the payload contains
         //    "ts": millis() which would defeat the base-class string compare.
-        if (motion == _lastMotion) {
+        if (motion == _lastMotion && !isForced()) {
             return false;   // no state change → skip publish
         }
 

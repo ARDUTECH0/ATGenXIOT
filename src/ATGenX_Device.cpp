@@ -1,7 +1,7 @@
 /**
  * @file    ATGenX_Device.cpp
  * @brief   ATGenX_Device implementation
- * @version 2.0.0
+ * @version 2.2.0
  */
 
 #include "ATGenX_Device.h"
@@ -32,8 +32,17 @@ ATGenX_Device::ATGenX_Device(uint8_t     pin,
 void ATGenX_Device::attachTo(ATGenX_Hub* hub) {
     _hub = hub;
 
+    setupPin();
+
     _fullPath   = String(hub->getUserId()) + "/" + _id;
     _topicState = "atgenx/" + _fullPath + "/state";
+}
+
+// Constructors of global objects can run before the core is ready on some
+// boards — set the pin up again once the hub takes the device.
+void ATGenX_Device::setupPin() {
+    pinMode(_pin, OUTPUT);
+    digitalWrite(_pin, _activeLow ? (_state ? LOW : HIGH) : (_state ? HIGH : LOW));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -66,21 +75,22 @@ void ATGenX_Device::onStateChange(void (*cb)(bool newState)) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 void ATGenX_Device::handleCommand(const char* payload, unsigned int len) {
-    // Guard against oversized payloads
-    constexpr size_t MAX_CMD = 64;
+    // Dashboard / cloud commands are small JSON objects (~60–90 bytes)
+    constexpr size_t MAX_CMD = 255;
     if (len == 0 || len > MAX_CMD) return;
 
     char buf[MAX_CMD + 1];
     memcpy(buf, payload, len);
     buf[len] = '\0';
 
-    int8_t cmd = parseCommand(buf);
+    const int8_t cmd = parseCommand(buf);
 
-    if      (cmd ==  1) { applyState(true);   }
-    else if (cmd ==  0) { applyState(false);  }
-    else if (cmd == -2) { toggle();           }   // explicit "toggle"
+    if      (cmd ==  1) { applyState(true);  }
+    else if (cmd ==  0) { applyState(false); }
+    else if (cmd == -2) { toggle();          }
+    else if (cmd == -3) { publishState();    }   // {"cmd":"getState"}
     else {
-        Serial.print(F("[ATGenX] Device '"));
+        Serial.print(F("[ATGenX] '"));
         Serial.print(_id);
         Serial.print(F("' – unrecognised command: "));
         Serial.println(buf);
@@ -137,50 +147,59 @@ void ATGenX_Device::applyState(bool newState) {
 }
 
 // ─── Command parser ──────────────────────────────────────────────────────────
-//  Returns:  1  → ON
-//            0  → OFF
+//  Returns:  1  → ON          0  → OFF
+//           -2  → toggle     -3  → report state
 //           -1  → unrecognised
-//           -2  → toggle
+//
+//  Accepts  {"state":1|0|true|false|"on"|"off"|"toggle"}
+//           {"cmd":"on"|"off"|"toggle"|"getState"}
+//           plain  1 / 0 / on / off / true / false / toggle
+
+namespace {
+    // Pointer to the value of "key" in a flat JSON object, or nullptr.
+    const char* jsonValue(const char* raw, const char* key) {
+        char pattern[24];
+        snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+        const char* p = strstr(raw, pattern);
+        if (!p) return nullptr;
+        p += strlen(pattern);
+        while (*p == ' ' || *p == '\t') ++p;
+        if (*p != ':') return nullptr;
+        ++p;
+        while (*p == ' ' || *p == '\t') ++p;
+        return p;
+    }
+
+    int8_t wordToCommand(const char* p) {
+        if (*p == '"') ++p;
+        if (strncasecmp(p, "getstate", 8) == 0) return -3;
+        if (strncasecmp(p, "toggle",   6) == 0) return -2;
+        if (strncasecmp(p, "true",     4) == 0) return  1;
+        if (strncasecmp(p, "false",    5) == 0) return  0;
+        if (strncasecmp(p, "on",       2) == 0) return  1;
+        if (strncasecmp(p, "off",      3) == 0) return  0;
+        if (*p == '1') return 1;
+        if (*p == '0') return 0;
+        return -1;
+    }
+}
 
 int8_t ATGenX_Device::parseCommand(const char* raw) const {
-    // ── JSON path ──────────────────────────────────────────────────────────
+    while (*raw == ' ' || *raw == '\r' || *raw == '\n') ++raw;
+
     if (raw[0] == '{') {
-        // Lightweight field search — avoids heap allocation of a JSON library
-        const char* p = strstr(raw, "\"state\"");
-        if (!p) return -1;
-        p += 7;  // skip "state"
-
-        // skip whitespace and colon
-        while (*p == ' ' || *p == ':') ++p;
-
-        // Numeric value
-        if (*p == '1') return  1;
-        if (*p == '0') return  0;
-
-        // String value
-        if (*p == '"') {
-            ++p;
-            if (strncasecmp(p, "on",     2) == 0) return  1;
-            if (strncasecmp(p, "off",    3) == 0) return  0;
-            if (strncasecmp(p, "toggle", 6) == 0) return -2;
-        }
+        if (const char* v = jsonValue(raw, "state")) return wordToCommand(v);
+        if (const char* v = jsonValue(raw, "cmd"))   return wordToCommand(v);
         return -1;
     }
 
-    // ── Plain-text path ───────────────────────────────────────────────────
-    // Work on a lowercase copy without heap allocation
-    char lower[65];
-    size_t i = 0;
-    while (raw[i] && i < 64) { lower[i] = tolower((unsigned char)raw[i]); ++i; }
-    lower[i] = '\0';
-
-    if (strcmp(lower, "1")      == 0) return  1;
-    if (strcmp(lower, "on")     == 0) return  1;
-    if (strcmp(lower, "true")   == 0) return  1;
-    if (strcmp(lower, "0")      == 0) return  0;
-    if (strcmp(lower, "off")    == 0) return  0;
-    if (strcmp(lower, "false")  == 0) return  0;
-    if (strcmp(lower, "toggle") == 0) return -2;
-
+    // Plain text must be the whole word ("on", not "only")
+    const int8_t c = wordToCommand(raw);
+    if (c == -1) return -1;
+    const size_t n = strlen(raw);
+    static const char* const words[] = { "1", "0", "on", "off", "true", "false", "toggle", "getstate" };
+    for (const char* w : words) {
+        if (n == strlen(w) && strncasecmp(raw, w, n) == 0) return c;
+    }
     return -1;
 }

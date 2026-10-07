@@ -24,7 +24,7 @@ bool ATGenX_SoundSensor::readAndBuildPayload(char* buf, size_t sz) {
     if (_mode == SoundMode::DIGITAL_ONLY) {
         if (_dPin == 255) return false;
         const int state = digitalRead(_dPin);
-        if (state == _lastDigital) return false;
+        if (state == _lastDigital && !isForced()) return false;
         _lastDigital = state;
         snprintf(buf, sz, "{\"state\":%d}", state);
         return true;
@@ -34,20 +34,12 @@ bool ATGenX_SoundSensor::readAndBuildPayload(char* buf, size_t sz) {
         if (_aPin == 255) return false;
         const int raw = analogRead(_aPin);
 
-        // Debug مؤقت — شوف الـ raw value
-        Serial.print(F("[Sound] raw="));
-        Serial.print(raw);
-        Serial.print(F("  last="));
-        Serial.print(_lastAnalog);
-        Serial.print(F("  diff="));
-        Serial.println(raw - _lastAnalog);
-
         // أول قراءة — _lastAnalog = -9999 دايماً هيعدي
         const int diff = (raw > _lastAnalog)
                        ? (raw - _lastAnalog)
                        : (_lastAnalog - raw);
 
-        if (_lastAnalog != -9999 && diff < _threshold) return false;
+        if (_lastAnalog != -9999 && diff < _threshold && !isForced()) return false;
 
         _lastAnalog = raw;
         snprintf(buf, sz, "{\"value\":%d}", raw);
@@ -66,7 +58,7 @@ bool ATGenX_SoundSensor::readAndBuildPayload(char* buf, size_t sz) {
     const bool analogChanged = (raw   != -1) &&
                                (_lastAnalog == -9999 || diff >= _threshold);
 
-    if (!stateChanged && !analogChanged) return false;
+    if (!stateChanged && !analogChanged && !isForced()) return false;
 
     if (stateChanged)  _lastDigital = state;
     if (analogChanged) _lastAnalog  = raw;

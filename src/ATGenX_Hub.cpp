@@ -18,6 +18,7 @@
 #endif
 
 uint32_t g_atgxFirmwareVersion = 0;
+const char* g_atgxProjectId = "";
 
 ATGenX_Hub* ATGenX_Hub::_instance = nullptr;
 
@@ -295,10 +296,15 @@ void ATGenX_Hub::serviceConnection() {
 void ATGenX_Hub::onMqttConnected() {
     _wasConnected = true;
 
-    char status[160];
+    // project ids are UUIDs (36 chars) — anything odd is left out rather than breaking the JSON
+    char project[48] = "";
+    if (g_atgxProjectId && strlen(g_atgxProjectId) < sizeof(project) && !strpbrk(g_atgxProjectId, "\"\\")) {
+        strncpy(project, g_atgxProjectId, sizeof(project) - 1);
+    }
+    char status[240];
     snprintf(status, sizeof(status),
-             "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fw\":%lu}",
-             getBoardType(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion);
+             "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fw\":%lu,\"project\":\"%s\"}",
+             getBoardType(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion, project);
     _mqtt.publish(_statusTopic.c_str(), status, /*retained=*/true);
     if (_otaEnabled) subscribe(_otaTopic.c_str());
 

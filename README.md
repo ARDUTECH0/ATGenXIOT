@@ -135,6 +135,9 @@ ESP32 sketches need an OTA-capable partition scheme (the default one is).
 
 ## Changelog
 
+**2.4.0**
+- Firmware built on ATGENX carries its project (`#define ATGENX_PROJECT_ID "…"`), reported as `"project"` in the online status — the site's "My boards" page links the board to its project for editing and over-the-air updates.
+
 **2.3.0**
 - Over-the-air updates from the ATGENX site (HTTP/HTTPS, MD5-checked, outputs switched off while flashing).
 - The online status now includes the firmware version (`"fw"`).

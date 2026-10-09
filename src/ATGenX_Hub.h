@@ -77,6 +77,11 @@ extern uint32_t g_atgxFirmwareVersion;
 struct ATGenX_FwVersion {
     explicit ATGenX_FwVersion(uint32_t v) { g_atgxFirmwareVersion = v; }
 };
+/** ATGENX project id stamped by the build ("" = unknown). */
+extern const char* g_atgxProjectId;
+struct ATGenX_ProjectId {
+    explicit ATGenX_ProjectId(const char* id) { g_atgxProjectId = id; }
+};
 
 class ATGenX_Device;    // Forward declaration
 class ATGenX_Sensor;    // Forward declaration

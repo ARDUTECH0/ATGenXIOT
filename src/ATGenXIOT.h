@@ -69,3 +69,8 @@
 #ifdef ATGENX_FW_VERSION
 static ATGenX_FwVersion atgx_fw_version_(ATGENX_FW_VERSION);
 #endif
+// …and  #define ATGENX_PROJECT_ID "<id>"  — the ATGENX project this firmware came from,
+// so the account's "My boards" page can open it for editing and updates.
+#ifdef ATGENX_PROJECT_ID
+static ATGenX_ProjectId atgx_project_id_(ATGENX_PROJECT_ID);
+#endif

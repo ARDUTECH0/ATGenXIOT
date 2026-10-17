@@ -16,5 +16,7 @@ onStateChange	KEYWORD2
 publishState	KEYWORD2
 getDeviceId	KEYWORD2
 getFullPath	KEYWORD2
+useTls	KEYWORD2
+useTlsInsecure	KEYWORD2
 
 # Constants (LITERAL1)

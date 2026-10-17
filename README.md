@@ -133,7 +133,24 @@ online. Turn it off with `hub.enableOta(false)`.
 
 ESP32 sketches need an OTA-capable partition scheme (the default one is).
 
+## Encrypted connection (TLS)
+
+Call `useTls()` before `begin()` to encrypt the MQTT connection (port 8883). The board checks the broker's
+certificate against the Let's Encrypt root built into the library (valid to 2035); pass your own root CA
+as a PEM string to use another broker.
+
+```cpp
+hub.useTls();          // or hub.useTls(MY_ROOT_CA_PEM);
+hub.begin("MySSID", "MyPass", "atg_usr_…", "atg_sk_…");
+```
+
+`useTlsInsecure()` encrypts without checking the certificate — for a local test broker only.
+On ESP8266 the board first gets the time from NTP (up to ~10 s) because certificate dates are checked.
+
 ## Changelog
+
+**2.5.0**
+- Encrypted MQTT (TLS): `useTls()` checks the broker certificate (Let's Encrypt root built in, or your own CA); `useTlsInsecure()` for test brokers. ESP32 and ESP8266.
 
 **2.4.0**
 - Firmware built on ATGENX carries its project (`#define ATGENX_PROJECT_ID "…"`), reported as `"project"` in the online status — the site's "My boards" page links the board to its project for editing and over-the-air updates.

@@ -57,14 +57,19 @@
 #endif
 
 #include <PubSubClient.h>
+#if defined(ESP32)
+#   include <WiFiClientSecure.h>
+#elif defined(ESP8266)
+#   include <WiFiClientSecureBearSSL.h>
+#endif
 
 // Broker defaults — override with hub.setServer() or by defining these
 // before including the library.
 #ifndef ATGENX_BROKER_HOST
-#   define ATGENX_BROKER_HOST "76.13.52.9"
+#   define ATGENX_BROKER_HOST "192.168.1.14"
 #endif
 #ifndef ATGENX_BROKER_PORT
-#   define ATGENX_BROKER_PORT 6523
+#   define ATGENX_BROKER_PORT 1883
 #endif
 
 // Set to 1 for per-reading Serial logs (noisy).
@@ -141,6 +146,20 @@ public:
      *        Call before begin().
      */
     void setServer(const char* host, uint16_t port);
+
+    /**
+     * @brief Encrypt the MQTT connection (TLS, usually port 8883). Call before begin().
+     *        The broker's certificate is checked against `rootCa` (PEM) — by default the
+     *        Let's Encrypt root (ISRG Root X1) that ATGENX Cloud uses. ESP8266 boards also
+     *        fetch the time (NTP) first, which certificate checks need.
+     */
+    void useTls(const char* rootCa = nullptr);
+
+    /**
+     * @brief TLS without checking the certificate — only for a test broker with a
+     *        self-signed certificate. The link is encrypted but anyone could pose as the broker.
+     */
+    void useTlsInsecure();
 
     /**
      * @brief Connect to Wi-Fi and the MQTT broker.
@@ -248,6 +267,15 @@ private:
 
     // ── Network ─────────────────────────────────────────────────────────────
     WiFiClient   _wifiClient;
+#if defined(ESP32)
+    WiFiClientSecure _tlsClient;
+#elif defined(ESP8266)
+    BearSSL::WiFiClientSecure _tlsClient;
+    BearSSL::X509List*        _tlsAnchors = nullptr;
+#endif
+    bool        _tls = false;
+    bool        _tlsInsecure = false;
+    const char* _tlsCa = nullptr;
     PubSubClient _mqtt;
 
     String   _host;

@@ -25,6 +25,15 @@ ATGenX_Device::ATGenX_Device(uint8_t     pin,
     applyState(false);  // Ensure relay starts OFF regardless of board state
 }
 
+ATGenX_Device::ATGenX_Device(const char* deviceId)
+    : _pin(NO_PIN),
+      _activeLow(false),
+      _state(false),
+      _id(deviceId),
+      _hub(nullptr),
+      _onStateChange(nullptr)
+{}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Internal – hub binding
 // ═══════════════════════════════════════════════════════════════════════════
@@ -41,6 +50,7 @@ void ATGenX_Device::attachTo(ATGenX_Hub* hub) {
 // Constructors of global objects can run before the core is ready on some
 // boards — set the pin up again once the hub takes the device.
 void ATGenX_Device::setupPin() {
+    if (_pin == NO_PIN) return;
     pinMode(_pin, OUTPUT);
     digitalWrite(_pin, _activeLow ? (_state ? LOW : HIGH) : (_state ? HIGH : LOW));
 }
@@ -122,6 +132,11 @@ void ATGenX_Device::publishState() const {
 
 void ATGenX_Device::applyState(bool newState) {
     _state = newState;
+    if (_pin == NO_PIN) {   // a variable: tell its code and the dashboard, drive nothing
+        if (_onStateChange) _onStateChange(newState);
+        publishState();
+        return;
+    }
 
     const uint8_t level = _activeLow
         ? (newState ? LOW : HIGH)

@@ -5,6 +5,8 @@ Switch outputs from the dashboard, stream sensor readings into history and
 charts, and let cloud automations react — with one MQTT connection.
 
 - **Outputs:** relays, LEDs, buzzers, motors (`ATGenX_Device`), servos (`ATGenX_Servo`)
+- **Your own variables:** switches, numbers and colours that live in your code (`ATGenX_Switch`, `ATGenX_Number`, `ATGenX_Color`)
+- **Wi-Fi from the phone:** no network name or password in the sketch — set it from the ATGenX app
 - **Sensors:** DHT11/22, PIR, LDR, any analog sensor, any ON/OFF input, HC-SR04, sound
 - **Robust:** non-blocking reconnect with back-off, so outputs and sensors keep running while Wi-Fi or the broker is down
 - **Presence:** online/offline status topic (MQTT last will) and periodic board discovery
@@ -52,7 +54,43 @@ void loop() {
 }
 ```
 
-More examples are in `examples/`: Single_Relay, Multi_Relay, Smart_Room and Servo_Door.
+More examples are in `examples/`: Single_Relay, Multi_Relay, Smart_Room, Servo_Door, Own_Variables and Phone_WiFi_Setup.
+
+## Wi-Fi from the phone
+
+Leave the network out of the sketch and call `begin()` with just the account:
+
+```cpp
+hub.begin("atg_usr_xxxxxxxx", "atg_sk_xxxxxxxx");
+```
+
+With no network saved, the board opens its own setup network `ATGenX-XXXX`; the ATGenX app (**Add a device**)
+joins it and sends your home Wi-Fi, which the board keeps. If the saved network can't be reached for a minute
+(a new router, a changed password), setup mode opens again. Holding **BOOT** for 5 s forgets the network.
+
+## Your own variables
+
+Make a variable on the site (device page → **Your own variables**), copy its ID, and share it with the dashboard
+both ways: the dashboard changes it → your callback runs; your code changes it → the dashboard shows it.
+
+```cpp
+ATGenX_Switch pump("farm_pump");        // on / off
+ATGenX_Number level("farm_level");      // a number (slider, value, gauge, chart)
+ATGenX_Color  strip("farm_strip");      // an RGB colour
+
+void setup() {
+    hub.attach(pump);  hub.attach(level);  hub.attach(strip);
+    pump.onChange([](bool on) { digitalWrite(26, on); });
+    hub.begin("atg_usr_xxxxxxxx", "atg_sk_xxxxxxxx");
+}
+
+void loop() {
+    hub.loop();
+    level.set(analogRead(34) * 100.0 / 4095);   // sent once a second at most
+}
+```
+
+See `ATGenX_Vars.h` for everything they can do.
 
 ## Classes
 
@@ -74,7 +112,7 @@ More examples are in `examples/`: Single_Relay, Multi_Relay, Smart_Room and Serv
 ### Hub
 
 ```cpp
-hub.setServer("192.168.1.10", 1883);   // optional, before begin() (local broker)
+hub.setServer("192.168.1.10", 1883);   // optional, before begin(): another broker (default: device.atgenx.com, port 6523)
 hub.begin(ssid, pass, mqttUser, mqttPass);
 hub.loop();
 hub.onError([](ATGenX_Error e, const char* why) { … });
@@ -111,7 +149,7 @@ Commands can be up to 255 bytes. The cloud's automation payloads (`{"state":1,"s
 | `WIFI_TIMEOUT` | No Wi-Fi within 30 s at start-up. The board restarts. |
 | `MQTT_FAILED` | Wrong username/password, an expired plan, or the device limit is reached. |
 | `MQTT_RECONNECT` | The connection dropped. Reconnecting in the background (2 s → 60 s back-off). |
-| `DEVICE_LIMIT` / `SENSOR_LIMIT` | More than 16 outputs or 24 sensors were attached. |
+| `DEVICE_LIMIT` / `SENSOR_LIMIT` | More than 24 outputs and variables, or 24 sensors, were attached. |
 | `PUBLISH_FAILED` | The broker refused a message (it may be too large). |
 
 ## Hardware notes
@@ -148,6 +186,15 @@ hub.begin("MySSID", "MyPass", "atg_usr_…", "atg_sk_…");
 On ESP8266 the board first gets the time from NTP (up to ~10 s) because certificate dates are checked.
 
 ## Changelog
+
+**2.7.0**
+- Boards connect to the ATGENX cloud by default: `device.atgenx.com`, port 6523 (it was a development address). `hub.setServer()` still overrides it.
+- A switch or colour set by its own code reports only when it changes (no message per loop).
+
+**2.6.0**
+- Wi-Fi from the ATGenX phone app: `hub.begin(user, pass)` with no network in the sketch; setup network `ATGenX-XXXX`; hold BOOT 5 s to forget the network.
+- Your own variables: `ATGenX_Switch`, `ATGenX_Number`, `ATGenX_Color` — values that live in your code and on the dashboard, with no pin.
+- Up to 24 outputs and variables (was 16).
 
 **2.5.0**
 - Encrypted MQTT (TLS): `useTls()` checks the broker certificate (Let's Encrypt root built in, or your own CA); `useTlsInsecure()` for test brokers. ESP32 and ESP8266.

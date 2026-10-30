@@ -7,6 +7,7 @@
 #include "ATGenX_Hub.h"
 #include "ATGenX_Device.h"
 #include "ATGenX_Sensor.h"
+#include "ATGenX_WiFiSetup.h"
 #include <ArduinoJson.h>
 
 #if defined(ESP32)
@@ -152,9 +153,22 @@ void ATGenX_Hub::begin(const char* ssid,
     _lastAttemptMs = millis();
 }
 
+void ATGenX_Hub::begin(const char* mqttUsername, const char* mqttPassword) {
+    _phoneSetup = true;
+    if (!ATGenX_WiFiSetup::load(_savedSsid, _savedPass)) {
+        Serial.println(F("[WiFi] No network saved yet — setup mode"));
+        ATGenX_WiFiSetup::run(getBoardType());   // restarts once the phone sends a network
+    }
+    begin(_savedSsid.c_str(), _savedPass.c_str(), mqttUsername, mqttPassword);
+}
+
 void ATGenX_Hub::loop() {
+    if (_phoneSetup) ATGenX_WiFiSetup::watchButton();
     serviceConnection();
     if (_mqtt.connected()) _mqtt.loop();
+
+    // your own variables send their latest value (see ATGenX_Vars.h)
+    for (size_t i = 0; i < _deviceCount; ++i) _devices[i]->tick();
 
     // Sensors keep sampling while offline (their publish just fails quietly)
     for (size_t i = 0; i < _sensorCount; ++i) {
@@ -286,7 +300,15 @@ void ATGenX_Hub::connectWiFi(const char* ssid, const char* pass) {
 
     const uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
-        if (millis() - start > WIFI_TIMEOUT_SEC * 1000UL) {
+        if (_phoneSetup) ATGenX_WiFiSetup::watchButton();
+        // set from the phone: after a minute, setup mode (a new router, a changed password) — it tries the
+        // saved network again every 3 minutes while nobody is connected to it
+        if (_phoneSetup && millis() - start > 60000UL) {
+            Serial.println();
+            reportError(ATGenX_Error::WIFI_TIMEOUT, ssid);
+            ATGenX_WiFiSetup::run(getBoardType(), 180000UL);
+        }
+        if (!_phoneSetup && millis() - start > WIFI_TIMEOUT_SEC * 1000UL) {
             Serial.println();
             reportError(ATGenX_Error::WIFI_TIMEOUT, ssid);
             Serial.println(F("[WiFi] Timeout – check the network name/password. Restarting…"));

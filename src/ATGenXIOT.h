@@ -50,6 +50,7 @@
 
 // ── Output types ──────────────────────────────────────────────────────────
 #include "ATGenX_Device.h"
+#include "ATGenX_Vars.h"
 
 // ── Sensor base + all built-in sensor types ───────────────────────────────
 #include "ATGenX_Sensor.h"

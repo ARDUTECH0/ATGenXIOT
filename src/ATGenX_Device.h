@@ -46,6 +46,9 @@ public:
                   const char* deviceId,
                   bool        activeLow = true);
 
+    /** No pin: a value that lives in the cloud and your code (ATGenX_Switch, ATGenX_Number, ATGenX_Color). */
+    static constexpr uint8_t NO_PIN = 0xFF;
+
     // ───────────────────────────────────────────────────────────────────────
     // Control API
     // ───────────────────────────────────────────────────────────────────────
@@ -103,9 +106,15 @@ public:
     /** @internal Publishes the current state to the state topic (retained). */
     virtual void publishState() const;
 
+    /** @internal Called on every hub.loop() (a variable sends its latest value from here). */
+    virtual void tick() {}
+
     virtual ~ATGenX_Device() = default;
 
 protected:
+
+    /** @internal For pin-less variables (see NO_PIN): nothing is driven, only reported. */
+    explicit ATGenX_Device(const char* deviceId);
 
     /** Configures the GPIO when attached (servo & co. override this). */
     virtual void setupPin();

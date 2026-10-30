@@ -66,10 +66,10 @@
 // Broker defaults — override with hub.setServer() or by defining these
 // before including the library.
 #ifndef ATGENX_BROKER_HOST
-#   define ATGENX_BROKER_HOST "192.168.1.14"
+#   define ATGENX_BROKER_HOST "device.atgenx.com"
 #endif
 #ifndef ATGENX_BROKER_PORT
-#   define ATGENX_BROKER_PORT 1883
+#   define ATGENX_BROKER_PORT 6523
 #endif
 
 // Set to 1 for per-reading Serial logs (noisy).
@@ -118,7 +118,7 @@ public:
     // Constants
     // ───────────────────────────────────────────────────────────────────────
 
-    static constexpr size_t   MAX_DEVICES       = 16;
+    static constexpr size_t   MAX_DEVICES       = 24;
     static constexpr size_t   MAX_SENSORS       = 24;
     static constexpr uint8_t  WIFI_TIMEOUT_SEC  = 30;
     static constexpr uint8_t  MQTT_BEGIN_TRIES  = 3;      ///< blocking tries inside begin()
@@ -172,6 +172,14 @@ public:
                const char* password,
                const char* mqttUsername,
                const char* mqttPassword);
+
+    /**
+     * @brief Connect without a network name or password in the sketch (v2.6): the home Wi-Fi is set from the
+     *        ATGenX app (Add a device) and kept on the board. With none saved — or when the saved one can't be
+     *        reached for a minute — the board opens its setup network "ATGenX-XXXX". Holding BOOT 5 s at any
+     *        time forgets the network. See ATGenX_WiFiSetup.h.
+     */
+    void begin(const char* mqttUsername, const char* mqttPassword);
 
     /**
      * @brief Must be called every iteration of loop().
@@ -273,6 +281,10 @@ private:
     BearSSL::WiFiClientSecure _tlsClient;
     BearSSL::X509List*        _tlsAnchors = nullptr;
 #endif
+    /// the network came from the phone (begin(user, pass)): setup mode instead of restarting on a timeout
+    bool        _phoneSetup = false;
+    String      _savedSsid;
+    String      _savedPass;
     bool        _tls = false;
     bool        _tlsInsecure = false;
     const char* _tlsCa = nullptr;

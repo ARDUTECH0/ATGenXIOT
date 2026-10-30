@@ -3,6 +3,9 @@
 # Datatypes (KEYWORD1)
 ATGenX_Hub	KEYWORD1
 ATGenX_Device	KEYWORD1
+ATGenX_Switch	KEYWORD1
+ATGenX_Number	KEYWORD1
+ATGenX_Color	KEYWORD1
 
 # Methods and Functions (KEYWORD2)
 begin	KEYWORD2
@@ -13,6 +16,7 @@ turnOff	KEYWORD2
 toggle	KEYWORD2
 isOn	KEYWORD2
 onStateChange	KEYWORD2
+onChange	KEYWORD2
 publishState	KEYWORD2
 getDeviceId	KEYWORD2
 getFullPath	KEYWORD2

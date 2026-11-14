@@ -110,7 +110,7 @@ void ATGenX_Hub::begin(const char* ssid,
     _otaTopic    = "atgenx/" + _userId + "/" + _clientId + "/ota";
 
     Serial.println();
-    Serial.println(F("──────────── ATGenX Hub v2.3.0 ────────────"));
+    Serial.println(F("──────────── ATGenX Hub v2.8.0 ────────────"));
     Serial.print(F("  Board     : ")); Serial.println(getBoardType());
     Serial.print(F("  Client ID : ")); Serial.println(_userId);
     Serial.print(F("  Board ID  : ")); Serial.println(_clientId);
@@ -148,6 +148,44 @@ void ATGenX_Hub::begin(const char* ssid,
     for (uint8_t attempt = 1; attempt <= MQTT_BEGIN_TRIES; ++attempt) {
         if (tryConnectMQTT()) return;
         if (attempt < MQTT_BEGIN_TRIES) delay(RETRY_MIN_MS);
+    }
+    Serial.println(F("[MQTT] Still offline — retrying in the background"));
+    _lastAttemptMs = millis();
+}
+
+void ATGenX_Hub::beginWithClient(Client& network, const char* mqttUsername, const char* mqttPassword, bool (*linkUp)(), const char* via) {
+    _external   = true;
+    _linkUp     = linkUp;
+    _via        = (via && *via) ? via : "cellular";
+    _otaEnabled = false;   // the firmware download is Wi-Fi only
+    _mqttUser    = mqttUsername;
+    _mqttPass    = mqttPassword;
+    _clientId    = buildClientId();
+    _statusTopic = "atgenx/" + _userId + "/" + _clientId + "/status";
+    _otaTopic    = "atgenx/" + _userId + "/" + _clientId + "/ota";
+
+    Serial.println();
+    Serial.println(F("──────────── ATGenX Hub v2.8.0 ────────────"));
+    Serial.print(F("  Board     : ")); Serial.println(getBoardType());
+    Serial.print(F("  Network   : ")); Serial.println(_via);
+    Serial.print(F("  Client ID : ")); Serial.println(_userId);
+    Serial.print(F("  Board ID  : ")); Serial.println(_clientId);
+    Serial.print(F("  Broker    : ")); Serial.print(_host); Serial.print(':'); Serial.println(_port);
+    Serial.println(F("────────────────────────────────────────────"));
+
+    _mqtt.setClient(network);
+    _mqtt.setServer(_host.c_str(), _port);
+    _mqtt.setCallback(mqttCallback);
+    _mqtt.setKeepAlive(MQTT_KEEPALIVE_S);
+    // a cellular round trip is slower than Wi-Fi
+    _mqtt.setSocketTimeout(15);
+    _mqtt.setBufferSize(MQTT_BUFFER_BYTES);
+
+    if (!_linkUp || _linkUp()) {
+        for (uint8_t attempt = 1; attempt <= MQTT_BEGIN_TRIES; ++attempt) {
+            if (tryConnectMQTT()) return;
+            if (attempt < MQTT_BEGIN_TRIES) delay(RETRY_MIN_MS);
+        }
     }
     Serial.println(F("[MQTT] Still offline — retrying in the background"));
     _lastAttemptMs = millis();
@@ -366,8 +404,13 @@ void ATGenX_Hub::serviceConnection() {
         return;
     }
 
-    if (WiFi.status() != WL_CONNECTED) return;          // radio is reconnecting
-    if (millis() - _lastAttemptMs < _retryMs) return;   // back-off
+    if (!_external && WiFi.status() != WL_CONNECTED) return;   // radio is reconnecting
+    if (millis() - _lastAttemptMs < _retryMs) return;           // back-off
+    // the sketch's own link (a SIM modem) is asked only when a try is due: each question is an AT command
+    if (_external && _linkUp && !_linkUp()) {
+        _lastAttemptMs = millis();
+        return;
+    }
 
     _lastAttemptMs = millis();
     if (!tryConnectMQTT()) {
@@ -389,7 +432,7 @@ void ATGenX_Hub::onMqttConnected() {
     char status[240];
     snprintf(status, sizeof(status),
              "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fw\":%lu,\"project\":\"%s\"}",
-             getBoardType(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion, project);
+             getBoardType(), _external ? _via : WiFi.localIP().toString().c_str(), _external ? 0 : (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion, project);
     _mqtt.publish(_statusTopic.c_str(), status, /*retained=*/true);
     if (_otaEnabled) subscribe(_otaTopic.c_str());
 

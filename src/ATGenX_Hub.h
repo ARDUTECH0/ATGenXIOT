@@ -182,6 +182,20 @@ public:
     void begin(const char* mqttUsername, const char* mqttPassword);
 
     /**
+     * @brief Connect through a network the sketch brings up itself (v2.8) — a SIM modem with TinyGSM
+     *        (`TinyGsmClient`), Ethernet… instead of Wi-Fi. The broker, the account and everything after
+     *        are the same. `linkUp` (optional) says whether that network is up: while it isn't, MQTT isn't
+     *        retried and the sketch reconnects it (e.g. `modem.isGprsConnected()` / `gprsConnect()`).
+     *        `via` names the link in the board's status ("cellular"). Updates over the air stay off on this
+     *        link (the firmware download goes over Wi-Fi only).
+     */
+    void beginWithClient(Client& network,
+                         const char* mqttUsername,
+                         const char* mqttPassword,
+                         bool (*linkUp)() = nullptr,
+                         const char* via = "cellular");
+
+    /**
      * @brief Must be called every iteration of loop().
      *
      * Drives the MQTT client, reconnects without blocking when the session
@@ -283,6 +297,10 @@ private:
 #endif
     /// the network came from the phone (begin(user, pass)): setup mode instead of restarting on a timeout
     bool        _phoneSetup = false;
+    /// beginWithClient(): a network the sketch runs (a SIM modem), not this board's Wi-Fi
+    bool        _external = false;
+    bool      (*_linkUp)() = nullptr;
+    const char* _via = "wifi";
     String      _savedSsid;
     String      _savedPass;
     bool        _tls = false;

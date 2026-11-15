@@ -23,4 +23,7 @@ getFullPath	KEYWORD2
 useTls	KEYWORD2
 useTlsInsecure	KEYWORD2
 
+setLink	KEYWORD2
+rssi	KEYWORD2
+
 # Constants (LITERAL1)

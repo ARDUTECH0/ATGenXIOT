@@ -81,7 +81,7 @@ void ATGenX_Discovery::publishAnnouncement() const {
     doc["userId"]  = _hub.getUserId();
     doc["board"]   = _hub.getBoardType();
     doc["ip"]      = WiFi.localIP().toString();
-    doc["rssi"]    = (int)WiFi.RSSI();
+    doc["rssi"]    = _hub.rssi();   // Wi-Fi's, or a SIM link's (setLink)
     doc["uptime"]  = millis() / 1000UL;
     doc["status"]  = "online";
 

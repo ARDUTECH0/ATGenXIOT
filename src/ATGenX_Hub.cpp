@@ -165,7 +165,7 @@ void ATGenX_Hub::beginWithClient(Client& network, const char* mqttUsername, cons
     _otaTopic    = "atgenx/" + _userId + "/" + _clientId + "/ota";
 
     Serial.println();
-    Serial.println(F("──────────── ATGenX Hub v2.8.0 ────────────"));
+    Serial.println(F("──────────── ATGenX Hub v2.9.0 ────────────"));
     Serial.print(F("  Board     : ")); Serial.println(getBoardType());
     Serial.print(F("  Network   : ")); Serial.println(_via);
     Serial.print(F("  Client ID : ")); Serial.println(_userId);
@@ -421,19 +421,61 @@ void ATGenX_Hub::serviceConnection() {
     }
 }
 
-void ATGenX_Hub::onMqttConnected() {
-    _wasConnected = true;
-
+/** The board's status (retained): how it's connected, its firmware and project — and a SIM link's network. */
+void ATGenX_Hub::publishStatus() {
     // project ids are UUIDs (36 chars) — anything odd is left out rather than breaking the JSON
     char project[48] = "";
     if (g_atgxProjectId && strlen(g_atgxProjectId) < sizeof(project) && !strpbrk(g_atgxProjectId, "\"\\")) {
         strncpy(project, g_atgxProjectId, sizeof(project) - 1);
     }
-    char status[240];
-    snprintf(status, sizeof(status),
-             "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fw\":%lu,\"project\":\"%s\"}",
-             getBoardType(), _external ? _via : WiFi.localIP().toString().c_str(), _external ? 0 : (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion, project);
+    char status[320];
+    if (_external)
+        snprintf(status, sizeof(status),
+                 "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"net\":\"%s\",\"carrier\":\"%s\",\"fw\":%lu,\"project\":\"%s\"}",
+                 getBoardType(), _via, _linkDbm, _linkKind, _linkCarrier, (unsigned long)g_atgxFirmwareVersion, project);
+    else
+        snprintf(status, sizeof(status),
+                 "{\"online\":true,\"board\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"fw\":%lu,\"project\":\"%s\"}",
+                 getBoardType(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(), (unsigned long)g_atgxFirmwareVersion, project);
     _mqtt.publish(_statusTopic.c_str(), status, /*retained=*/true);
+    _statusAt = millis() | 1;
+    _sentDbm  = _linkDbm;
+}
+
+/** Words for the status JSON: no quotes, backslashes or control characters, cut to fit. */
+static void atgxCleanCopy(char* dst, size_t n, const char* src) {
+    size_t j = 0;
+    for (size_t i = 0; src && src[i] && j + 1 < n; ++i) {
+        const char c = src[i];
+        if (c == '"' || c == '\\' || (uint8_t)c < 0x20) continue;
+        dst[j++] = c;
+    }
+    dst[j] = 0;
+}
+
+void ATGenX_Hub::setLink(int dbm, const char* kind, const char* carrier) {
+    char k[sizeof(_linkKind)];
+    char c[sizeof(_linkCarrier)];
+    atgxCleanCopy(k, sizeof k, kind);
+    atgxCleanCopy(c, sizeof c, carrier);
+    const bool renamed = strcmp(k, _linkKind) != 0 || strcmp(c, _linkCarrier) != 0;
+    const bool moved   = abs(dbm - _sentDbm) >= 6;
+    _linkDbm = dbm;
+    memcpy(_linkKind, k, sizeof k);
+    memcpy(_linkCarrier, c, sizeof c);
+    if (!(renamed || moved) || !_mqtt.connected()) return;
+    if (!renamed && _statusAt && millis() - _statusAt < 60000UL) return;   // the signal alone: once a minute at most
+    publishStatus();
+}
+
+int ATGenX_Hub::rssi() const {
+    return _external ? _linkDbm : (int)WiFi.RSSI();
+}
+
+void ATGenX_Hub::onMqttConnected() {
+    _wasConnected = true;
+
+    publishStatus();
     if (_otaEnabled) subscribe(_otaTopic.c_str());
 
     for (size_t i = 0; i < _deviceCount; ++i) {

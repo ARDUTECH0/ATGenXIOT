@@ -118,6 +118,7 @@ hub.loop();
 hub.onError([](ATGenX_Error e, const char* why) { … });
 hub.onConnectionChange([](bool online) { … });
 hub.isConnected();  hub.getClientId();  hub.getBoardType();
+hub.setLink(-79, "4G", "Vodafone EG");   // 2.9: a SIM link's network, for the board's status
 ```
 
 ### Outputs
@@ -186,6 +187,13 @@ hub.begin("MySSID", "MyPass", "atg_usr_…", "atg_sk_…");
 On ESP8266 the board first gets the time from NTP (up to ~10 s) because certificate dates are checked.
 
 ## Changelog
+
+**2.9.0**
+- `hub.setLink(dbm, kind, carrier)`: a sketch on its own network (a SIM modem) says which network it's on — the signal in dBm, "4G"/"2G"/"LTE-M"/"NB-IoT" and the operator's name. The board's status carries them (`rssi`, `net`, `carrier`), so "My boards" shows "Vodafone EG · 4G" and real bars; the status goes out again when they change (the signal alone, once a minute at most). `#define ATGENX_HUB_HAS_LINK` tells a sketch it's there.
+- `hub.rssi()`: Wi-Fi's signal, or the link's. The discovery announcement uses it (it sent Wi-Fi's on a SIM board).
+
+**2.8.0**
+- `hub.beginWithClient(client, user, pass, linkUp, via)`: the cloud through a network the sketch brings up (a SIM modem with TinyGSM) instead of Wi-Fi.
 
 **2.7.0**
 - Boards connect to the ATGENX cloud by default: `device.atgenx.com`, port 6523 (it was a development address). `hub.setServer()` still overrides it.

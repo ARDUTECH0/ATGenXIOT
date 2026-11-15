@@ -111,6 +111,9 @@ enum class ATGenX_Error : uint8_t {
 // ATGenX_Hub
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// setLink() is here (2.9): a sketch can test for it and still build with an older library
+#define ATGENX_HUB_HAS_LINK 1
+
 class ATGenX_Hub {
 public:
 
@@ -194,6 +197,18 @@ public:
                          const char* mqttPassword,
                          bool (*linkUp)() = nullptr,
                          const char* via = "cellular");
+
+    /**
+     * @brief The sketch's own network, for the board's status (v2.9): its signal in dBm (0 = unknown), its
+     *        kind ("4G", "2G", "LTE-M"…) and the operator's name — what "My boards" shows for a SIM board.
+     *        Call it every minute or so (each value is an AT command to the modem). The status goes out again
+     *        when the operator or the kind change, or the signal moves by 6 dB or more (then once a minute at
+     *        most). Quotes and control characters are dropped from the words.
+     */
+    void setLink(int dbm, const char* kind, const char* carrier);
+
+    /** @brief The signal the status carries: Wi-Fi's RSSI, or the one setLink() gave (0 when unknown). */
+    int rssi() const;
 
     /**
      * @brief Must be called every iteration of loop().
@@ -301,6 +316,13 @@ private:
     bool        _external = false;
     bool      (*_linkUp)() = nullptr;
     const char* _via = "wifi";
+    /// setLink(): the external network as the status shows it, and what the last status sent
+    int      _linkDbm = 0;
+    int      _sentDbm = 0;
+    char     _linkKind[12] = "";
+    char     _linkCarrier[40] = "";
+    uint32_t _statusAt = 0;
+    void     publishStatus();
     String      _savedSsid;
     String      _savedPass;
     bool        _tls = false;

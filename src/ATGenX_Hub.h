@@ -360,6 +360,10 @@ private:
     void handleMessage(char* topic, byte* payload, unsigned int len);
     void handleOta(const char* payload, unsigned int len);
     void otaStatus(const char* state, long version, const char* error = nullptr);
+    // an update over Wi-Fi on trial until it reaches the cloud (see ATGX_OTA_VERIFY_MS in ATGenX_Hub.cpp)
+    bool _trialChecked = false;
+    bool _onTrial = false;
+    bool _rollbackTold = false;
     void reportError(ATGenX_Error error, const char* detail) const;
     String buildClientId() const;
     static const char* mqttStateText(int state);

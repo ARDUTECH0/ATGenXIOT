@@ -13,6 +13,7 @@
 #if defined(ESP32)
 #   include <HTTPUpdate.h>
 #   include <WiFiClientSecure.h>
+#   include <esp_ota_ops.h>
 #elif defined(ESP8266)
 #   include <ESP8266httpUpdate.h>
 #   include <WiFiClientSecureBearSSL.h>
@@ -20,6 +21,73 @@
 
 uint32_t g_atgxFirmwareVersion = 0;
 const char* g_atgxProjectId = "";
+
+// ── An update over Wi-Fi is on trial until it reaches ATGENX Cloud ─────────
+// The ESP32 keeps the code it was running beside the new one. The new code is kept only once this hub connects to the
+// cloud (onMqttConnected); if it crashes or restarts before that, the bootloader starts the previous code again, and if
+// it runs ATGX_OTA_VERIFY_MS without reaching the cloud (a wrong Wi-Fi, a broken sketch), the hub goes back to the
+// previous code itself. A board is never left stranded by an update. (ESP8266 has no second copy to go back to.)
+#ifndef ATGX_OTA_VERIFY_MS
+#define ATGX_OTA_VERIFY_MS 600000UL   // 10 minutes
+#endif
+#if defined(ESP32) && defined(CONFIG_APP_ROLLBACK_ENABLE)
+#   define ATGX_ROLLBACK 1
+#   include <esp_timer.h>
+#   include <Preferences.h>
+#else
+#   define ATGX_ROLLBACK 0
+#endif
+
+/** The code running came over the air and hasn't been confirmed yet. */
+static bool atgxOnTrial() {
+#if ATGX_ROLLBACK
+    esp_ota_img_states_t state;
+    return esp_ota_get_state_partition(esp_ota_get_running_partition(), &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+#else
+    return false;
+#endif
+}
+
+#if ATGX_ROLLBACK
+static esp_timer_handle_t s_atgxTrialTimer = nullptr;
+static void atgxTrialExpired(void*) {
+    // ATGX_OTA_VERIFY_MS on the new code and never in the cloud (stuck in setup(), a wrong Wi-Fi, a broken sketch)
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+}
+// The core's hook, run at start-up before setup() (esp32-hal-misc.c, a C file): "don't mark new code good now — the
+// sketch will". The trial clock starts here, so it covers a sketch that never gets past setup().
+extern "C" bool verifyRollbackLater() {
+    if (atgxOnTrial() && !s_atgxTrialTimer) {
+        esp_timer_create_args_t args = {};
+        args.callback = &atgxTrialExpired;
+        args.name = "atgx-ota-trial";
+        if (esp_timer_create(&args, &s_atgxTrialTimer) == ESP_OK) esp_timer_start_once(s_atgxTrialTimer, (uint64_t)ATGX_OTA_VERIFY_MS * 1000ULL);
+    }
+    return true;
+}
+#endif
+
+/**
+ * The board went back to its previous code because an update didn't work — true once per failed update: the failed
+ * copy stays marked until the next update, so its fingerprint is kept (NVS) and it isn't told again at every start.
+ */
+static bool atgxRolledBack() {
+#if ATGX_ROLLBACK
+    const esp_partition_t* bad = esp_ota_get_last_invalid_partition();
+    esp_app_desc_t desc;
+    if (!bad || esp_ota_get_partition_description(bad, &desc) != ESP_OK) return false;
+    char print[17];
+    for (int i = 0; i < 8; ++i) snprintf(print + i * 2, 3, "%02x", desc.app_elf_sha256[i]);
+    Preferences nvs;
+    if (!nvs.begin("atgx-ota", false)) return false;
+    const bool fresh = nvs.getString("told", "") != print;
+    if (fresh) nvs.putString("told", print);
+    nvs.end();
+    return fresh;
+#else
+    return false;
+#endif
+}
 
 ATGenX_Hub* ATGenX_Hub::_instance = nullptr;
 
@@ -201,6 +269,11 @@ void ATGenX_Hub::begin(const char* mqttUsername, const char* mqttPassword) {
 }
 
 void ATGenX_Hub::loop() {
+    if (!_trialChecked) {
+        _trialChecked = true;
+        _onTrial = atgxOnTrial();
+        if (_onTrial) Serial.println(F("[OTA] New code on trial: it is kept once it reaches ATGENX Cloud"));
+    }
     if (_phoneSetup) ATGenX_WiFiSetup::watchButton();
     serviceConnection();
     if (_mqtt.connected()) _mqtt.loop();
@@ -477,6 +550,24 @@ void ATGenX_Hub::onMqttConnected() {
 
     publishStatus();
     if (_otaEnabled) subscribe(_otaTopic.c_str());
+
+    // the update reached the cloud: it's the board's code now
+    if (!_trialChecked) {
+        _trialChecked = true;
+        _onTrial = atgxOnTrial();
+    }
+#if ATGX_ROLLBACK
+    if (_onTrial) {
+        if (s_atgxTrialTimer) esp_timer_stop(s_atgxTrialTimer);
+        esp_ota_mark_app_valid_cancel_rollback();
+        _onTrial = false;
+        Serial.println(F("[OTA] The new code reached ATGENX Cloud: kept"));
+        otaStatus("verified", (long)g_atgxFirmwareVersion);
+    } else if (!_rollbackTold && atgxRolledBack()) {
+        _rollbackTold = true;
+        otaStatus("rolledback", (long)g_atgxFirmwareVersion, "the new code didn't reach ATGENX Cloud, so the board went back to this code");
+    }
+#endif
 
     for (size_t i = 0; i < _deviceCount; ++i) {
         const String topic = "atgenx/" + _userId + "/" + _devices[i]->getId() + "/cmd";

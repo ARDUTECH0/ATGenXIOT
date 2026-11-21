@@ -170,6 +170,17 @@ downloads the new firmware, checks its MD5, flashes it and restarts, reporting
 version (`ATGENX_FW_VERSION`) that the board reports as `"fw"` when it comes
 online. Turn it off with `hub.enableOta(false)`.
 
+**An update never strands an ESP32 (2.10+).** The board keeps the code it was
+running beside the new one, and the new code is on trial until it reaches
+ATGENX Cloud: then it's kept and the board reports `{"ota":"verified"}`. If the
+new code crashes or restarts before that, the bootloader starts the previous
+code again; if it runs 10 minutes without reaching the cloud (a wrong Wi-Fi, a
+sketch stuck in `setup()`), it goes back to the previous code itself — the clock
+starts before `setup()`. The previous code then reports
+`{"ota":"rolledback"}` (once per failed update). Change the wait with
+`#define ATGX_OTA_VERIFY_MS 300000UL` before the include. ESP8266 has no second
+copy of the code to go back to.
+
 ESP32 sketches need an OTA-capable partition scheme (the default one is).
 
 ## Encrypted connection (TLS)
@@ -187,6 +198,9 @@ hub.begin("MySSID", "MyPass", "atg_usr_…", "atg_sk_…");
 On ESP8266 the board first gets the time from NTP (up to ~10 s) because certificate dates are checked.
 
 ## Changelog
+
+**2.10.0**
+- An update over Wi-Fi is on trial until the new code reaches ATGENX Cloud (ESP32): kept then (`{"ota":"verified"}`), otherwise the board goes back to the code it was running — after a crash or restart, or 10 minutes without the cloud (`ATGX_OTA_VERIFY_MS`, counted from before `setup()`). The code it went back to reports `{"ota":"rolledback"}` once.
 
 **2.9.0**
 - `hub.setLink(dbm, kind, carrier)`: a sketch on its own network (a SIM modem) says which network it's on — the signal in dBm, "4G"/"2G"/"LTE-M"/"NB-IoT" and the operator's name. The board's status carries them (`rssi`, `net`, `carrier`), so "My boards" shows "Vodafone EG · 4G" and real bars; the status goes out again when they change (the signal alone, once a minute at most). `#define ATGENX_HUB_HAS_LINK` tells a sketch it's there.
